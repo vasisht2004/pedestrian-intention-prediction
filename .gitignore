@@ -1,0 +1,24 @@
+# Data
+npy_data/
+*.npy
+
+# Checkpoints
+checkpoints/
+*.pt
+*.pth
+
+# Video files
+*.mp4
+*.avi
+*.mov
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# Environment
+.env
