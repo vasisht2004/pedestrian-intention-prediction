@@ -17,7 +17,7 @@ conda activate pedpred
 pip install -r requirements.txt
 
 # 4. Get the preprocessed data
-# Download npy_data/ from Google Drive: <PLACEHOLDER_LINK>
+# Download npy_data/ from Google Drive: https://drive.google.com/drive/folders/1HJw6lwJix4KwbulPpES4bWazAde8puAe?usp=drive_link
 # Extract it so that npy_data/JAAD/ and npy_data/PIE/ exist in the project root.
 
 # 5. Train
@@ -29,7 +29,7 @@ python train.py
 You have two options for the preprocessed skeleton + head pose data:
 
 **Option A — Download preprocessed data (recommended)**
-Download `npy_data/` from the shared Google Drive folder: `<PLACEHOLDER_LINK>`
+Download `npy_data/` from the shared Google Drive folder: `https://drive.google.com/drive/folders/1HJw6lwJix4KwbulPpES4bWazAde8puAe?usp=drive_link`
 
 **Option B — Preprocess from raw videos**
 1. Download the [JAAD dataset](https://github.com/ykotseruba/JAAD) and point `JAAD_ROOT` in `train.py` to it.
