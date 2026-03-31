@@ -6,7 +6,7 @@ Predicts whether a pedestrian will cross a street at four time horizons (0.5s, 1
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/<your-username>/pedestrian-intention-prediction.git
+git clone https://github.com/vasisht2004/pedestrian-intention-prediction.git
 cd pedestrian-intention-prediction
 
 # 2. Create and activate conda environment
