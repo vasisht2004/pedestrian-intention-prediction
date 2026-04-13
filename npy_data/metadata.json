@@ -1,0 +1,15 @@
+{
+  "created_by": "preprocess_mediapipe.py and preprocess_mediapipe_pie.py",
+  "mediapipe_version": "0.10.9",
+  "skeleton_shape": "[16, 17, 4] — 16 frames, 17 joints, 4 features (x_norm, y_norm, vx, vy)",
+  "headpose_shape": "[16, 3] — 16 frames, 3 angles (yaw, pitch, roll)",
+  "headpose_method": "MediaPipe Face Mesh + OpenCV solvePnP",
+  "frame_rate": "12fps for JAAD, 30fps with FRAME_STEP=15 for PIE (effectively 2fps sampled)",
+  "normalization": "coordinates divided by bounding box width/height",
+  "missing_joints": "forward-fill from previous frame if visibility < 0.5",
+  "zero_headpose_rate": "92.6% — Face Mesh fails on distant pedestrians",
+  "zero_skeleton_rate": "22% — MediaPipe fails on very small bounding boxes",
+  "jaad_samples": 27898,
+  "pie_samples": 18270,
+  "total_npy_files": "92,336 (2 per sample: skeleton.npy + headpose.npy)"
+}

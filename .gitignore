@@ -1,5 +1,5 @@
 # Data
-npy_data/
+npy_data/**/*.npy
 *.npy
 
 # Checkpoints
