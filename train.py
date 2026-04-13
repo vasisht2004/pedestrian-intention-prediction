@@ -65,6 +65,7 @@ def validate(model, val_loader, loss_fn, epoch, edge_index):
     model.eval()
     all_preds   = []
     all_targets = []
+    all_flags   = []
     total_loss  = 0.0
     n_batches   = 0
 
@@ -85,14 +86,22 @@ def validate(model, val_loader, loss_fn, epoch, edge_index):
 
             all_preds.append(outputs['crossing_probs'].cpu().numpy())
             all_targets.append(targets.cpu().numpy())
+            all_flags.append(batch['dataset_flag'].cpu().numpy())
 
     all_preds   = np.concatenate(all_preds,   axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
+    all_flags   = np.concatenate(all_flags,   axis=0)
 
-    f1_scores = compute_f1(all_preds, all_targets)
-    avg_loss  = total_loss / max(n_batches, 1)
+    # F1 per dataset (0=JAAD, 1=PIE)
+    jaad_mask = all_flags == 0
+    pie_mask  = all_flags == 1
 
-    return avg_loss, f1_scores
+    f1_jaad = compute_f1(all_preds[jaad_mask], all_targets[jaad_mask]) if jaad_mask.sum() > 0 else [0.0]*4
+    f1_pie  = compute_f1(all_preds[pie_mask],  all_targets[pie_mask])  if pie_mask.sum()  > 0 else [0.0]*4
+
+    avg_loss = total_loss / max(n_batches, 1)
+
+    return avg_loss, f1_jaad, f1_pie
 
 
 # ── Training loop ─────────────────────────────────────────────────────────────
@@ -170,18 +179,20 @@ def train():
         t_epoch = time.time() - t_start
 
         # ── Validation ────────────────────────────────────────────────────────
-        val_loss, val_f1 = validate(model, val_loader, loss_fn, epoch, edge_index)
-        val_f1_2s        = val_f1[HORIZON_IDX]
+        val_loss, f1_jaad, f1_pie = validate(model, val_loader, loss_fn, epoch, edge_index)
+
+        # Early stopping on average F1@2s across both datasets
+        val_f1_2s = (f1_jaad[HORIZON_IDX] + f1_pie[HORIZON_IDX]) / 2.0
 
         # Print epoch summary
         print(f"Epoch {epoch+1:02d}/{NUM_EPOCHS} | "
               f"Train Loss: {epoch_losses['total']:.4f} | "
               f"Val Loss: {val_loss:.4f} | "
-              f"F1@0.5s: {val_f1[0]:.3f} | "
-              f"F1@1s: {val_f1[1]:.3f} | "
-              f"F1@2s: {val_f1[2]:.3f} | "
-              f"F1@4s: {val_f1[3]:.3f} | "
               f"Time: {t_epoch:.1f}s")
+        print(f"  JAAD → F1@0.5s: {f1_jaad[0]:.3f} | F1@1s: {f1_jaad[1]:.3f} | "
+              f"F1@2s: {f1_jaad[2]:.3f} | F1@4s: {f1_jaad[3]:.3f}")
+        print(f"  PIE  → F1@0.5s: {f1_pie[0]:.3f}  | F1@1s: {f1_pie[1]:.3f}  | "
+              f"F1@2s: {f1_pie[2]:.3f}  | F1@4s: {f1_pie[3]:.3f}")
 
         # ── Checkpoint saving ─────────────────────────────────────────────────
         if val_f1_2s > best_val_f1:
@@ -194,7 +205,8 @@ def train():
                 'model_state': model.state_dict(),
                 'optimizer_state': optimizer.state_dict(),
                 'val_f1_2s':  val_f1_2s,
-                'val_f1_all': val_f1,
+                'val_f1_jaad': f1_jaad,
+                'val_f1_pie':  f1_pie,
             }
             path = os.path.join(CHECKPOINT_DIR, 'best_model.pt')
             torch.save(checkpoint, path)
