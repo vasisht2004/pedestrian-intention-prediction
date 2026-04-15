@@ -1,24 +1,43 @@
-# Data
-npy_data/**/*.npy
+# ── Data ──────────────────────────────────────────────────────
+npy_data/
 *.npy
 
-# Checkpoints
+# ── Model checkpoints ────────────────────────────────────────
 checkpoints/
 *.pt
 *.pth
 
-# Video files
+# ── Video/media files ────────────────────────────────────────
 *.mp4
 *.avi
 *.mov
+*.mkv
 
-# Python
+# ── Python ───────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+dist/
+build/
+*.egg
 
-# macOS
+# ── macOS ────────────────────────────────────────────────────
 .DS_Store
+.AppleDouble
+.LSOverride
 
-# Environment
+# ── IDE / Editor ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Claude / AI assistant context ────────────────────────────
+.claude/
+CLAUDE.md
+
+# ── Environment ──────────────────────────────────────────────
 .env
+*.log

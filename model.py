@@ -8,6 +8,11 @@ Architecture:
     Stream B: head pose [16,3]         → GRU encoder       → [64]  distraction context
     Fusion:   Distraction-Gated Fusion (Contribution 3)    → [256] fused embedding
     Heads:    Crossing (4) + Distraction (2) + EDL (2)
+
+NOTE: CrossingHead outputs raw logits, NOT probabilities.
+      Sigmoid is applied in the loss function (BCEWithLogitsLoss)
+      for numerical stability and stronger gradients.
+      Use torch.sigmoid(outputs['crossing_logits']) when you need probabilities.
 """
 
 import torch
@@ -20,6 +25,7 @@ from graph_construction import EDGE_INDEX, EDGE_TYPE, NUM_NODES, NUM_JOINTS, NUM
 class GraphTransformerEncoder(nn.Module):
     """
     3-layer Graph Attention Network (GATv2) that processes the skeleton graph.
+    All layers use concat=True to maintain hidden_dim throughout.
     """
     def __init__(self, in_dim=4, hidden_dim=64, out_dim=256, num_heads=4):
         super().__init__()
@@ -28,23 +34,26 @@ class GraphTransformerEncoder(nn.Module):
         self.frame_embed = nn.Embedding(NUM_FRAMES, hidden_dim)
         self.joint_embed = nn.Embedding(NUM_JOINTS, hidden_dim)
 
-        self.gat1 = GATv2Conv(hidden_dim,      hidden_dim // num_heads,
-                               heads=num_heads, concat=True,  dropout=0.1)
-        self.gat2 = GATv2Conv(hidden_dim,      hidden_dim // num_heads,
-                               heads=num_heads, concat=True,  dropout=0.1)
-        self.gat3 = GATv2Conv(hidden_dim,      hidden_dim // num_heads,
-                               heads=num_heads, concat=False, dropout=0.1)
+        self.gat1 = GATv2Conv(hidden_dim, hidden_dim // num_heads,
+                               heads=num_heads, concat=True, dropout=0.1)
+        self.gat2 = GATv2Conv(hidden_dim, hidden_dim // num_heads,
+                               heads=num_heads, concat=True, dropout=0.1)
+        self.gat3 = GATv2Conv(hidden_dim, hidden_dim // num_heads,
+                               heads=num_heads, concat=True, dropout=0.1)
 
         self.norm1 = nn.LayerNorm(hidden_dim)
         self.norm2 = nn.LayerNorm(hidden_dim)
+        self.norm3 = nn.LayerNorm(hidden_dim)
 
         self.ffn1 = nn.Sequential(nn.Linear(hidden_dim, hidden_dim*2), nn.ReLU(),
                                    nn.Linear(hidden_dim*2, hidden_dim))
         self.ffn2 = nn.Sequential(nn.Linear(hidden_dim, hidden_dim*2), nn.ReLU(),
                                    nn.Linear(hidden_dim*2, hidden_dim))
+        self.ffn3 = nn.Sequential(nn.Linear(hidden_dim, hidden_dim*2), nn.ReLU(),
+                                   nn.Linear(hidden_dim*2, hidden_dim))
 
         self.output_proj = nn.Sequential(
-            nn.Linear(hidden_dim // num_heads, out_dim),
+            nn.Linear(hidden_dim, out_dim),
             nn.ReLU()
         )
 
@@ -66,7 +75,8 @@ class GraphTransformerEncoder(nn.Module):
         h2 = h2 + self.ffn2(h2)
 
         h3 = self.gat3(h2, edge_index)
-        h3 = F.relu(h3)
+        h3 = self.norm3(h3 + h2)
+        h3 = h3 + self.ffn3(h3)
 
         h3     = h3.view(batch_size, NUM_NODES, -1)
         pooled = h3.mean(dim=1)
@@ -106,7 +116,11 @@ class DistractionGatedFusion(nn.Module):
 
 class CrossingHead(nn.Module):
     """
-    Predicts crossing probability at 4 time horizons.
+    Predicts crossing logits at 4 time horizons.
+    
+    IMPORTANT: Outputs raw logits, NOT probabilities.
+    Sigmoid is applied in the loss (BCEWithLogitsLoss) for stability.
+    Apply torch.sigmoid() yourself when you need probabilities for evaluation.
     """
     def __init__(self, in_dim=256):
         super().__init__()
@@ -115,7 +129,7 @@ class CrossingHead(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(128, 4),
-            nn.Sigmoid()
+            # NO Sigmoid here — applied in loss function
         )
 
     def forward(self, x):
@@ -182,24 +196,26 @@ class PedestrianIntentModel(nn.Module):
         """
         batch_size = skeleton.shape[0]
 
-        # Stream A
+        # Stream A: Skeleton graph → pose embedding
         x                  = skeleton.view(batch_size * 272, 4)
         batch_edge_index   = self._batch_edge_index(edge_index, batch_size, skeleton.device)
         pose_embedding     = self.graph_encoder(x, batch_edge_index)
 
-        # Stream B
+        # Stream B: Head pose → distraction context
         distraction_context = self.gru_encoder(headpose)
 
-        # Fusion
+        # Fusion: Distraction-gated pose
         fused = self.fusion(pose_embedding, distraction_context)
 
-        # Heads
-        crossing_probs     = self.crossing_head(fused)
+        # Prediction heads
+        crossing_logits    = self.crossing_head(fused)          # RAW LOGITS
+        crossing_probs     = torch.sigmoid(crossing_logits)     # for evaluation only
         distraction_logits = self.distraction_head(fused)
         alpha, beta, edl_probs, uncertainty = self.edl_head(fused)
 
         return {
-            'crossing_probs':     crossing_probs,
+            'crossing_logits':    crossing_logits,     # raw logits for loss
+            'crossing_probs':     crossing_probs,      # probabilities for metrics
             'distraction_logits': distraction_logits,
             'alpha':              alpha,
             'beta':               beta,
@@ -236,10 +252,11 @@ if __name__ == '__main__':
     with torch.no_grad():
         outputs = model(skeleton, headpose, edge_index)
 
+    print(f"crossing_logits shape:    {outputs['crossing_logits'].shape}")
     print(f"crossing_probs shape:     {outputs['crossing_probs'].shape}")
     print(f"distraction_logits shape: {outputs['distraction_logits'].shape}")
     print(f"edl_probs shape:          {outputs['edl_probs'].shape}")
     print(f"uncertainty shape:        {outputs['uncertainty'].shape}")
-    print(f"\nSample crossing probs: {outputs['crossing_probs'][0]}")
-    print(f"Sample uncertainty:    {outputs['uncertainty'][0]}")
-    print(f"Sample EDL probs:      {outputs['edl_probs'][0]}")
+    print(f"\nSample crossing logits: {outputs['crossing_logits'][0]}")
+    print(f"Sample crossing probs:  {outputs['crossing_probs'][0]}")
+    print(f"Sample uncertainty:     {outputs['uncertainty'][0]}")
